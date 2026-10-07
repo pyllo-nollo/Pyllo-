@@ -12,7 +12,7 @@ local Player = Players.LocalPlayer
 --==================================================
 
 local TEMPO_ANTES = 0.2
-local TEMPO_NA_BASE = 0.35
+local TEMPO_NA_BASE = 0.1
 local ALTURA_BASE = 7
 
 local BotAtivo = false
@@ -699,4 +699,7 @@ print("Bot começa DESLIGADO.")
 print("Clique em ☑️ PARA BOTS para ligar.")
 print("Detector de ovo carregado.")
 print("Teleporte: 0.2s antes.")
-print("Base: 0.35s.")
+print("Base: 0.1s.")
+
+
+
