@@ -1,8 +1,9 @@
---// pyllo hub | PARA BOTS
---// Detecta o ovo na mão e teleporta para a Base
+--// pyllo hub | DETECTOR DE OVO
+--// Detecta antes de virar Tool/inventário
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local Player = Players.LocalPlayer
 
@@ -16,7 +17,14 @@ local ALTURA_BASE = 7
 
 local BotAtivo = false
 local Teleportando = false
-local detectado = nil
+
+local ovoDetectado = nil
+local roubando = false
+
+local PALAVRAS_OVO = {
+    "egg",
+    "ovo"
+}
 
 --==================================================
 -- GUI
@@ -181,7 +189,7 @@ local function TeleportToBase()
     end
 
     local Root = Character:FindFirstChild("HumanoidRootPart")
-    local Humanoid = Character:FindFirstChild("Humanoid")
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
 
     if not Root or not Humanoid then
         Teleportando = false
@@ -197,7 +205,7 @@ local function TeleportToBase()
         return
     end
 
-    if not Root or not Root.Parent then
+    if not Root.Parent then
         Teleportando = false
         return
     end
@@ -276,110 +284,216 @@ local function TeleportToBase()
 end
 
 --==================================================
--- DETECTOR DO OVO
+-- DETECTOR
 --==================================================
 
-local function nomePareceOvo(obj)
+local function pareceOvo(obj)
 
-    local nome = obj.Name:lower()
-
-    return nome:find("egg")
-        or nome:find("ovo")
-end
-
-local function procurarOvoNaMao()
-
-    if not BotAtivo then
-        detectado = nil
-        return
+    if not obj then
+        return false
     end
 
-    local Character = Player.Character
+    local nome = string.lower(obj.Name or "")
 
-    if not Character then
-        return
-    end
+    for _, palavra in ipairs(PALAVRAS_OVO) do
 
-    for _, obj in ipairs(Character:GetDescendants()) do
-
-        if nomePareceOvo(obj) then
-
-            if detectado ~= obj then
-
-                detectado = obj
-
-                print("🥚 OVO DETECTADO NA MÃO!")
-                print("Objeto:", obj:GetFullName())
-
-                task.spawn(function()
-                    TeleportToBase()
-                end)
-            end
-
-            return obj
+        if string.find(nome, palavra, 1, true) then
+            return true
         end
     end
 
-    if detectado then
+    return false
+end
 
-        print("🥚 Ovo deixou de estar sendo carregado.")
+--==================================================
+-- DETECTAR OVO
+--==================================================
 
-        detectado = nil
+local function detectar(obj, motivo)
+
+    if not BotAtivo then
+        return
+    end
+
+    if not obj then
+        return
+    end
+
+    if pareceOvo(obj) then
+
+        if ovoDetectado ~= obj then
+
+            ovoDetectado = obj
+            roubando = true
+
+            print("🥚 OVO DETECTADO!")
+            print("Motivo:", motivo)
+            print("Objeto:", obj:GetFullName())
+
+            -- Teleporta automaticamente
+            task.spawn(function()
+                TeleportToBase()
+            end)
+        end
     end
 end
 
 --==================================================
--- VERIFICAÇÃO CONTÍNUA
+-- PROXIMITY PROMPT
 --==================================================
 
-task.spawn(function()
+ProximityPromptService.PromptTriggered:Connect(function(
+    prompt,
+    player
+)
 
-    while true do
-
-        procurarOvoNaMao()
-
-        task.wait(0.1)
+    if player ~= Player then
+        return
     end
 
+    if not BotAtivo then
+        return
+    end
+
+    local parent = prompt.Parent
+
+    -- próprio Prompt
+    if pareceOvo(prompt) then
+        detectar(prompt, "Prompt")
+    end
+
+    -- pai
+    detectar(parent, "Parent do Prompt")
+
+    -- objetos acima
+    local atual = parent
+
+    for i = 1, 6 do
+
+        if not atual then
+            break
+        end
+
+        detectar(
+            atual,
+            "Objeto acima do Prompt"
+        )
+
+        atual = atual.Parent
+    end
+
+    roubando = true
+
+    print("🖐️ ROUBO INICIADO!")
 end)
 
 --==================================================
--- DETECTAR OBJETO ADICIONADO AO PERSONAGEM
+-- PROCURAR NO CHARACTER
+--==================================================
+
+local function procurarNoCharacter()
+
+    if not BotAtivo then
+        return
+    end
+
+    local character = Player.Character
+
+    if not character then
+        return
+    end
+
+    for _, obj in ipairs(character:GetDescendants()) do
+
+        -- Nome do objeto
+        if pareceOvo(obj) then
+            detectar(
+                obj,
+                "Objeto no Character"
+            )
+        end
+
+        -- Tool
+        if obj:IsA("Tool") and pareceOvo(obj) then
+
+            detectar(
+                obj,
+                "Tool"
+            )
+        end
+
+        -- Weld / WeldConstraint / Motor6D
+        if obj:IsA("Weld")
+        or obj:IsA("WeldConstraint")
+        or obj:IsA("Motor6D") then
+
+            if obj.Part0 then
+                detectar(
+                    obj.Part0,
+                    "Objeto conectado por Weld"
+                )
+            end
+
+            if obj.Part1 then
+                detectar(
+                    obj.Part1,
+                    "Objeto conectado por Weld"
+                )
+            end
+        end
+    end
+end
+
+--==================================================
+-- CHARACTER
 --==================================================
 
 local function conectarCharacter(character)
 
     character.DescendantAdded:Connect(function(obj)
 
+        task.wait()
+
         if not BotAtivo then
             return
         end
 
-        if nomePareceOvo(obj) then
+        if not obj:IsDescendantOf(character) then
+            return
+        end
 
-            task.wait()
+        detectar(
+            obj,
+            "Objeto adicionado ao Character"
+        )
 
-            if not BotAtivo then
-                return
+        local atual = obj.Parent
+
+        for i = 1, 5 do
+
+            if not atual then
+                break
             end
 
-            if obj:IsDescendantOf(character) then
+            detectar(
+                atual,
+                "Parent de objeto novo"
+            )
 
-                if detectado ~= obj then
-
-                    detectado = obj
-
-                    print("🥚 OVO PEGADO!")
-                    print("Objeto:", obj:GetFullName())
-
-                    task.spawn(function()
-                        TeleportToBase()
-                    end)
-                end
-            end
+            atual = atual.Parent
         end
     end)
 
+    character.DescendantRemoving:Connect(function(obj)
+
+        if obj == ovoDetectado then
+
+            print("🥚 OVO SAIU DO CHARACTER")
+
+            ovoDetectado = nil
+            roubando = false
+        end
+    end)
 end
 
 if Player.Character then
@@ -389,6 +503,47 @@ end
 Player.CharacterAdded:Connect(conectarCharacter)
 
 --==================================================
+-- VERIFICAÇÃO CONTÍNUA
+--==================================================
+
+task.spawn(function()
+
+    while true do
+
+        if BotAtivo then
+
+            procurarNoCharacter()
+
+            local backpack =
+                Player:FindFirstChildOfClass("Backpack")
+
+            if backpack then
+
+                for _, obj in ipairs(
+                    backpack:GetChildren()
+                ) do
+
+                    if obj:IsA("Tool")
+                    and pareceOvo(obj) then
+
+                        detectar(
+                            obj,
+                            "Tool no Backpack"
+                        )
+
+                        print(
+                            "🟢 OVO CHEGOU AO INVENTÁRIO!"
+                        )
+                    end
+                end
+            end
+        end
+
+        task.wait(0.1)
+    end
+end)
+
+--==================================================
 -- BOTÃO LIGAR / DESLIGAR
 --==================================================
 
@@ -396,10 +551,14 @@ local BostButton = Instance.new("TextButton")
 
 BostButton.Size = UDim2.new(1, -16, 0, 38)
 BostButton.Position = UDim2.fromOffset(8, 47)
-BostButton.BackgroundColor3 = Color3.fromRGB(0, 100, 210)
+BostButton.BackgroundColor3 =
+    Color3.fromRGB(0, 100, 210)
+
 BostButton.BorderSizePixel = 0
 BostButton.Text = "☑️ PARA BOTS"
-BostButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+BostButton.TextColor3 =
+    Color3.fromRGB(255, 255, 255)
+
 BostButton.TextSize = 13
 BostButton.Font = Enum.Font.GothamBold
 BostButton.Parent = Main
@@ -415,6 +574,7 @@ BostButton.MouseButton1Click:Connect(function()
     if BotAtivo then
 
         BostButton.Text = "☑️ PARA BOTS"
+
         BostButton.BackgroundColor3 =
             Color3.fromRGB(0, 100, 210)
 
@@ -423,18 +583,19 @@ BostButton.MouseButton1Click:Connect(function()
     else
 
         BostButton.Text = "⛔ BOT DESLIGADO"
+
         BostButton.BackgroundColor3 =
             Color3.fromRGB(70, 70, 80)
 
-        detectado = nil
+        ovoDetectado = nil
+        roubando = false
 
         print("pyllo hub: BOT DESLIGADO")
     end
-
 end)
 
 --==================================================
--- BOLINHA PARA REABRIR
+-- BOLINHA ☆
 --==================================================
 
 local OpenButton = Instance.new("TextButton")
@@ -442,11 +603,16 @@ local OpenButton = Instance.new("TextButton")
 OpenButton.Name = "Reabrir"
 OpenButton.Size = UDim2.fromOffset(52, 52)
 OpenButton.Position = UDim2.fromOffset(15, 180)
-OpenButton.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
+
+OpenButton.BackgroundColor3 =
+    Color3.fromRGB(10, 10, 18)
+
 OpenButton.BorderSizePixel = 0
 
 OpenButton.Text = "☆"
-OpenButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+OpenButton.TextColor3 =
+    Color3.fromRGB(255, 255, 255)
+
 OpenButton.TextSize = 28
 OpenButton.Font = Enum.Font.GothamBold
 
@@ -470,18 +636,16 @@ CloseButton.MouseButton1Click:Connect(function()
 
     Main.Visible = false
     OpenButton.Visible = true
-
 end)
 
 OpenButton.MouseButton1Click:Connect(function()
 
     Main.Visible = true
     OpenButton.Visible = false
-
 end)
 
 --==================================================
--- ARRASTAR JANELA
+-- ARRASTAR
 --==================================================
 
 local Dragging = false
@@ -490,8 +654,10 @@ local StartPos
 
 Top.InputBegan:Connect(function(Input)
 
-    if Input.UserInputType == Enum.UserInputType.MouseButton1
-    or Input.UserInputType == Enum.UserInputType.Touch then
+    if Input.UserInputType ==
+        Enum.UserInputType.MouseButton1
+    or Input.UserInputType ==
+        Enum.UserInputType.Touch then
 
         Dragging = true
         DragStart = Input.Position
@@ -499,10 +665,11 @@ Top.InputBegan:Connect(function(Input)
 
         Input.Changed:Connect(function()
 
-            if Input.UserInputState == Enum.UserInputState.End then
+            if Input.UserInputState ==
+                Enum.UserInputState.End then
+
                 Dragging = false
             end
-
         end)
     end
 end)
@@ -513,10 +680,13 @@ UserInputService.InputChanged:Connect(function(Input)
         return
     end
 
-    if Input.UserInputType == Enum.UserInputType.MouseMovement
-    or Input.UserInputType == Enum.UserInputType.Touch then
+    if Input.UserInputType ==
+        Enum.UserInputType.MouseMovement
+    or Input.UserInputType ==
+        Enum.UserInputType.Touch then
 
-        local Delta = Input.Position - DragStart
+        local Delta =
+            Input.Position - DragStart
 
         Main.Position = UDim2.new(
             StartPos.X.Scale,
@@ -534,4 +704,6 @@ end)
 print("pyllo hub carregado!")
 print("Bot começa DESLIGADO.")
 print("Clique em ☑️ PARA BOTS para ligar.")
-print("Ao pegar o ovo: teleporte automático.")
+print("Detector de ovo carregado.")
+print("Teleporte: 0.2s antes.")
+print("Base: 0.70s.")
