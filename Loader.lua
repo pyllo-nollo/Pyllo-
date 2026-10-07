@@ -12,7 +12,7 @@ local Player = Players.LocalPlayer
 --==================================================
 
 local TEMPO_ANTES = 0.2
-local TEMPO_NA_BASE = 0.70
+local TEMPO_NA_BASE = 0.35
 local ALTURA_BASE = 7
 
 local BotAtivo = false
@@ -330,7 +330,6 @@ local function detectar(obj, motivo)
             print("Motivo:", motivo)
             print("Objeto:", obj:GetFullName())
 
-            -- Teleporta automaticamente
             task.spawn(function()
                 TeleportToBase()
             end)
@@ -357,15 +356,12 @@ ProximityPromptService.PromptTriggered:Connect(function(
 
     local parent = prompt.Parent
 
-    -- próprio Prompt
     if pareceOvo(prompt) then
         detectar(prompt, "Prompt")
     end
 
-    -- pai
     detectar(parent, "Parent do Prompt")
 
-    -- objetos acima
     local atual = parent
 
     for i = 1, 6 do
@@ -405,7 +401,6 @@ local function procurarNoCharacter()
 
     for _, obj in ipairs(character:GetDescendants()) do
 
-        -- Nome do objeto
         if pareceOvo(obj) then
             detectar(
                 obj,
@@ -413,7 +408,6 @@ local function procurarNoCharacter()
             )
         end
 
-        -- Tool
         if obj:IsA("Tool") and pareceOvo(obj) then
 
             detectar(
@@ -422,7 +416,6 @@ local function procurarNoCharacter()
             )
         end
 
-        -- Weld / WeldConstraint / Motor6D
         if obj:IsA("Weld")
         or obj:IsA("WeldConstraint")
         or obj:IsA("Motor6D") then
@@ -706,4 +699,4 @@ print("Bot começa DESLIGADO.")
 print("Clique em ☑️ PARA BOTS para ligar.")
 print("Detector de ovo carregado.")
 print("Teleporte: 0.2s antes.")
-print("Base: 0.70s.")
+print("Base: 0.35s.")
