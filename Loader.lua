@@ -1,6 +1,5 @@
 --// pyllo hub | DETECTOR DE OVO
---// Clica para Teleportar
---// 0.2s antes | 0.1s na Base
+--// Detecta antes de virar Tool/inventário
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -16,23 +15,19 @@ local TEMPO_ANTES = 0.2
 local TEMPO_NA_BASE = 0.1
 local ALTURA_BASE = 7
 
---==================================================
--- VARIÁVEIS
---==================================================
-
 local BotAtivo = false
 local Teleportando = false
 local ovoDetectado = false
 local roubando = false
 
-local PALAVRAS_OVO = {
+--==================================================
+-- DETECTOR
+--==================================================
+
+local palavrasOvo = {
     "egg",
     "ovo"
 }
-
---==================================================
--- DETECTAR OVO
---==================================================
 
 local function NomeTemOvo(nome)
     if not nome then
@@ -41,7 +36,7 @@ local function NomeTemOvo(nome)
 
     nome = string.lower(tostring(nome))
 
-    for _, palavra in ipairs(PALAVRAS_OVO) do
+    for _, palavra in ipairs(palavrasOvo) do
         if string.find(nome, palavra, 1, true) then
             return true
         end
@@ -58,19 +53,21 @@ local function EncontrarBase()
     local character = Player.Character
 
     for _, obj in ipairs(workspace:GetDescendants()) do
-
         if obj:IsA("SpawnLocation") then
             return obj
         end
+    end
 
+    for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
             local nome = string.lower(obj.Name)
 
-            if string.find(nome, "base", 1, true)
-            or string.find(nome, "safe", 1, true)
-            or string.find(nome, "lobby", 1, true)
-            or string.find(nome, "spawn", 1, true) then
-
+            if (
+                string.find(nome, "base", 1, true)
+                or string.find(nome, "safe", 1, true)
+                or string.find(nome, "lobby", 1, true)
+                or string.find(nome, "spawn", 1, true)
+            ) then
                 if not character or not obj:IsDescendantOf(character) then
                     return obj
                 end
@@ -90,67 +87,49 @@ local function TeleportToBase()
         return
     end
 
-    if not BotAtivo then
-        return
-    end
-
     local character = Player.Character
     if not character then
         return
     end
 
-    local root = character:FindFirstChild("HumanoidRootPart")
-    if not root then
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
         return
     end
 
     local base = EncontrarBase()
-
     if not base then
-        warn("pyllo hub: Ponto da Base não encontrado!")
         return
     end
 
     Teleportando = true
 
-    local posicaoOriginal = root.CFrame
+    local posicaoOriginal = hrp.CFrame
 
     task.wait(TEMPO_ANTES)
 
-    if not BotAtivo or not root.Parent then
+    if not BotAtivo then
         Teleportando = false
         return
     end
 
-    root.CFrame = base.CFrame + Vector3.new(0, ALTURA_BASE, 0)
-
-    print("pyllo hub: chegou na Base")
+    hrp.CFrame = base.CFrame + Vector3.new(0, ALTURA_BASE, 0)
 
     task.wait(TEMPO_NA_BASE)
 
-    if root.Parent then
-        root.CFrame = posicaoOriginal
+    if hrp and hrp.Parent then
+        hrp.CFrame = posicaoOriginal
     end
-
-    print("pyllo hub: voltou para posição original")
 
     Teleportando = false
 end
 
 --==================================================
--- DETECTOR
+-- DETECTAR OBJETO
 --==================================================
 
-local function DetectarObjeto(obj, motivo)
+local function DetectarObjeto(obj)
     if not BotAtivo then
-        return
-    end
-
-    if not obj then
-        return
-    end
-
-    if not NomeTemOvo(obj.Name) then
         return
     end
 
@@ -158,22 +137,28 @@ local function DetectarObjeto(obj, motivo)
         return
     end
 
-    ovoDetectado = true
+    if not obj then
+        return
+    end
 
-    print("OVO DETECTADO!")
-    print("Motivo:", motivo)
-    print("Objeto:", obj:GetFullName())
+    if NomeTemOvo(obj.Name) then
+        ovoDetectado = true
 
-    task.spawn(TeleportToBase)
+        task.spawn(function()
+            TeleportToBase()
+
+            task.wait(0.2)
+            ovoDetectado = false
+        end)
+    end
 end
 
 --==================================================
 -- PROXIMITY PROMPT
 --==================================================
 
-ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, jogador)
-
-    if jogador ~= Player then
+ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, player)
+    if player and player ~= Player then
         return
     end
 
@@ -181,34 +166,36 @@ ProximityPromptService.PromptButtonHoldBegan:Connect(function(prompt, jogador)
         return
     end
 
-    if NomeTemOvo(prompt.Name)
-    or NomeTemOvo(prompt.ObjectText)
-    or NomeTemOvo(prompt.ActionText) then
+    local nomePrompt = prompt.Name or ""
+    local objeto = prompt.Parent
+    local nomeObjeto = objeto and objeto.Name or ""
+    local textoAcao = prompt.ActionText or ""
+
+    if NomeTemOvo(nomePrompt)
+        or NomeTemOvo(nomeObjeto)
+        or NomeTemOvo(textoAcao) then
 
         roubando = true
 
         print("ROUBO INICIADO!")
 
-        -- Teleporta sem esperar o ovo aparecer no inventário
-        task.spawn(function()
+        task.wait(0.05)
 
-            task.wait(0.05)
+        if roubando and BotAtivo and not ovoDetectado then
+            ovoDetectado = true
 
-            if roubando and BotAtivo and not ovoDetectado then
-                ovoDetectado = true
-
-                print("OVO DETECTADO!")
-                print("Motivo: ProximityPrompt")
-
+            task.spawn(function()
                 TeleportToBase()
-            end
-        end)
+
+                task.wait(0.2)
+                ovoDetectado = false
+            end)
+        end
     end
 end)
 
-ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, jogador)
-
-    if jogador ~= Player then
+ProximityPromptService.PromptButtonHoldEnded:Connect(function(prompt, player)
+    if player and player ~= Player then
         return
     end
 
@@ -220,125 +207,52 @@ end)
 --==================================================
 
 local function MonitorarCharacter(character)
-
     character.DescendantAdded:Connect(function(obj)
-
         if not BotAtivo then
             return
         end
 
         if NomeTemOvo(obj.Name) then
-            DetectarObjeto(obj, "Character")
+            DetectarObjeto(obj)
         end
 
-        if obj:IsA("Tool") and NomeTemOvo(obj.Name) then
-            DetectarObjeto(obj, "Tool")
-        end
-
-        if obj:IsA("Weld")
-        or obj:IsA("WeldConstraint")
-        or obj:IsA("Motor6D") then
-
-            local parte0 = obj.Part0
-            local parte1 = obj.Part1
-
-            if parte0 and NomeTemOvo(parte0.Name) then
-                DetectarObjeto(parte0, "Weld")
-            end
-
-            if parte1 and NomeTemOvo(parte1.Name) then
-                DetectarObjeto(parte1, "Weld")
+        if obj:IsA("Tool") then
+            if NomeTemOvo(obj.Name) then
+                DetectarObjeto(obj)
             end
         end
-    end)
 
-    character.DescendantRemoving:Connect(function(obj)
+        if obj:IsA("Weld") or obj:IsA("WeldConstraint") then
+            local parent = obj.Parent
 
-        if not NomeTemOvo(obj.Name) then
-            return
+            if parent and NomeTemOvo(parent.Name) then
+                DetectarObjeto(parent)
+            end
         end
-
-        print("OVO SAIU DO CHARACTER")
-
-        task.delay(0.05, function()
-
-            local backpack = Player:FindFirstChildOfClass("Backpack")
-
-            if not backpack then
-                return
-            end
-
-            for _, item in ipairs(backpack:GetChildren()) do
-
-                if item:IsA("Tool")
-                and NomeTemOvo(item.Name) then
-
-                    print("OVO CHEGOU AO INVENTÁRIO!")
-
-                    if not ovoDetectado then
-                        ovoDetectado = true
-                        TeleportToBase()
-                    end
-
-                    break
-                end
-            end
-        end)
     end)
 end
-
---==================================================
--- CHARACTER ATUAL
---==================================================
 
 if Player.Character then
     MonitorarCharacter(Player.Character)
 end
 
 Player.CharacterAdded:Connect(function(character)
-
-    ovoDetectado = false
-    roubando = false
-    Teleportando = false
-
     MonitorarCharacter(character)
 end)
 
 --==================================================
--- BACKPACK
+-- MONITORAR BACKPACK
 --==================================================
 
-local function MonitorarBackpack(backpack)
+local Backpack = Player:WaitForChild("Backpack")
 
-    backpack.ChildAdded:Connect(function(obj)
+Backpack.ChildAdded:Connect(function(obj)
+    if not BotAtivo then
+        return
+    end
 
-        if not BotAtivo then
-            return
-        end
-
-        if obj:IsA("Tool")
-        and NomeTemOvo(obj.Name) then
-
-            print("OVO CHEGOU AO INVENTÁRIO!")
-
-            if not ovoDetectado then
-                ovoDetectado = true
-                TeleportToBase()
-            end
-        end
-    end)
-end
-
-local backpack = Player:FindFirstChildOfClass("Backpack")
-
-if backpack then
-    MonitorarBackpack(backpack)
-end
-
-Player.ChildAdded:Connect(function(obj)
-
-    if obj:IsA("Backpack") then
-        MonitorarBackpack(obj)
+    if NomeTemOvo(obj.Name) then
+        DetectarObjeto(obj)
     end
 end)
 
@@ -346,21 +260,13 @@ end)
 -- GUI
 --==================================================
 
-local PlayerGui = Player:WaitForChild("PlayerGui")
-
-local antiga = PlayerGui:FindFirstChild("pylloHub")
-
-if antiga then
-    antiga:Destroy()
-end
-
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "pylloHub"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = PlayerGui
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
 
 --==================================================
--- HUB
+-- PAINEL PRINCIPAL
 --==================================================
 
 local Main = Instance.new("Frame")
@@ -372,7 +278,7 @@ Main.BorderSizePixel = 0
 Main.Parent = ScreenGui
 
 local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 5)
+MainCorner.CornerRadius = UDim.new(0, 4)
 MainCorner.Parent = Main
 
 local MainStroke = Instance.new("UIStroke")
@@ -387,23 +293,23 @@ MainStroke.Parent = Main
 local Title = Instance.new("TextLabel")
 Title.Name = "Title"
 Title.Size = UDim2.new(1, -50, 0, 35)
-Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Position = UDim2.new(0, 12, 0, 5)
 Title.BackgroundTransparency = 1
 Title.Text = "pyllo hub"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 18
+Title.TextSize = 20
 Title.Font = Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = Main
 
 --==================================================
--- FECHAR
+-- BOTÃO X
 --==================================================
 
 local CloseButton = Instance.new("TextButton")
 CloseButton.Name = "CloseButton"
 CloseButton.Size = UDim2.new(0, 30, 0, 30)
-CloseButton.Position = UDim2.new(1, -35, 0, 3)
+CloseButton.Position = UDim2.new(1, -38, 0, 7)
 CloseButton.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
 CloseButton.BorderSizePixel = 0
 CloseButton.Text = "X"
@@ -413,32 +319,32 @@ CloseButton.Font = Enum.Font.GothamBold
 CloseButton.Parent = Main
 
 local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 5)
+CloseCorner.CornerRadius = UDim.new(0, 4)
 CloseCorner.Parent = CloseButton
 
 local CloseStroke = Instance.new("UIStroke")
 CloseStroke.Color = Color3.fromRGB(255, 105, 180)
-CloseStroke.Thickness = 1
+CloseStroke.Thickness = 1.5
 CloseStroke.Parent = CloseButton
 
 --==================================================
--- BOTÃO
+-- BOTÃO DO BOT
 --==================================================
 
 local BostButton = Instance.new("TextButton")
 BostButton.Name = "BotButton"
 BostButton.Size = UDim2.new(0, 220, 0, 50)
-BostButton.Position = UDim2.new(0.5, -110, 0, 55)
+BostButton.Position = UDim2.new(0.5, -110, 0, 60)
 BostButton.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
 BostButton.BorderSizePixel = 0
 BostButton.Text = "BOT OFF"
 BostButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-BostButton.TextSize = 17
+BostButton.TextSize = 18
 BostButton.Font = Enum.Font.GothamBold
 BostButton.Parent = Main
 
 local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 5)
+ButtonCorner.CornerRadius = UDim.new(0, 4)
 ButtonCorner.Parent = BostButton
 
 local ButtonStroke = Instance.new("UIStroke")
@@ -447,18 +353,18 @@ ButtonStroke.Thickness = 1.5
 ButtonStroke.Parent = BostButton
 
 --==================================================
--- BOLINHA PYLLО
+-- BOTÃO FLUTUANTE
 --==================================================
 
 local OpenButton = Instance.new("TextButton")
 OpenButton.Name = "OpenButton"
 OpenButton.Size = UDim2.new(0, 65, 0, 65)
-OpenButton.Position = UDim2.new(0, 20, 0.5, -32)
-OpenButton.BackgroundColor3 = Color3.fromRGB(255, 170, 210)
+OpenButton.Position = UDim2.new(0, 15, 0.5, -32)
+OpenButton.BackgroundColor3 = Color3.fromRGB(255, 182, 220)
 OpenButton.BorderSizePixel = 0
 OpenButton.Text = "pyllo"
 OpenButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-OpenButton.TextSize = 14
+OpenButton.TextSize = 17
 OpenButton.Font = Enum.Font.GothamBold
 OpenButton.Visible = false
 OpenButton.Parent = ScreenGui
@@ -473,99 +379,80 @@ OpenStroke.Thickness = 2
 OpenStroke.Parent = OpenButton
 
 --==================================================
--- ARRASTAR
---==================================================
-
-local Arrastando = false
-local PosicaoInicial
-local PosicaoDoMouse
-
-Title.InputBegan:Connect(function(input)
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-
-        Arrastando = true
-        PosicaoInicial = Main.Position
-        PosicaoDoMouse = input.Position
-    end
-end)
-
-Title.InputEnded:Connect(function(input)
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-
-        Arrastando = false
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-
-    if not Arrastando then
-        return
-    end
-
-    if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input.UserInputType == Enum.UserInputType.Touch then
-
-        local delta = input.Position - PosicaoDoMouse
-
-        Main.Position = UDim2.new(
-            PosicaoInicial.X.Scale,
-            PosicaoInicial.X.Offset + delta.X,
-            PosicaoInicial.Y.Scale,
-            PosicaoInicial.Y.Offset + delta.Y
-        )
-    end
-end)
-
---==================================================
--- LIGAR / DESLIGAR
+-- BOTÃO BOT
 --==================================================
 
 BostButton.MouseButton1Click:Connect(function()
-
     BotAtivo = not BotAtivo
 
     if BotAtivo then
-
         BostButton.Text = "BOT ON"
-
-        ovoDetectado = false
-        roubando = false
-
-        print("pyllo hub: BOT LIGADO")
-
     else
-
         BostButton.Text = "BOT OFF"
-
-        ovoDetectado = false
         roubando = false
-
-        print("pyllo hub: BOT DESLIGADO")
+        ovoDetectado = false
     end
 end)
 
 --==================================================
--- FECHAR HUB
+-- FECHAR
 --==================================================
 
 CloseButton.MouseButton1Click:Connect(function()
-
     Main.Visible = false
     OpenButton.Visible = true
 end)
 
 --==================================================
--- ABRIR HUB
+-- ABRIR
 --==================================================
 
 OpenButton.MouseButton1Click:Connect(function()
-
     Main.Visible = true
     OpenButton.Visible = false
+end)
+
+--==================================================
+-- ARRASTAR PAINEL
+--==================================================
+
+local arrastando = false
+local inicioMouse
+local inicioPosicao
+
+Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        arrastando = true
+        inicioMouse = input.Position
+        inicioPosicao = Main.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                arrastando = false
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not arrastando then
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        local delta = input.Position - inicioMouse
+
+        Main.Position = UDim2.new(
+            inicioPosicao.X.Scale,
+            inicioPosicao.X.Offset + delta.X,
+            inicioPosicao.Y.Scale,
+            inicioPosicao.Y.Offset + delta.Y
+        )
+    end
 end)
 
 --==================================================
