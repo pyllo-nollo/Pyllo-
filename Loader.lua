@@ -1,5 +1,4 @@
---// pyllo hub | DETECTOR DE OVO
---// Detecta antes de virar Tool/inventário
+--// pyllo hub | DETECTOR DE OVO + FARM
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -21,13 +20,28 @@ local Teleportando = false
 local ovoDetectado = nil
 local roubando = false
 
+local FarmAtivo = false
+local MelhoresOvos = {}
+local OvoPrioritario = nil
+
 local PALAVRAS_OVO = {
     "egg",
     "ovo"
 }
 
+local PALAVRAS_IGNORAR = {
+    "eggbutton",
+    "eggbutton",
+    "eggui",
+}
+
+local COR_ROSA = Color3.fromRGB(255, 105, 180)
+local ROSA_CLARO = Color3.fromRGB(255, 182, 220)
+local FUNDO = Color3.fromRGB(15, 18, 25)
+local FUNDO_BOTAO = Color3.fromRGB(35, 40, 52)
+
 --==================================================
--- GUI
+-- GUI PRINCIPAL
 --==================================================
 
 local ScreenGui = Instance.new("ScreenGui")
@@ -38,9 +52,9 @@ ScreenGui.Parent = Player:WaitForChild("PlayerGui")
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.fromOffset(260, 135)
-Main.Position = UDim2.new(0.5, -130, 0.5, -67)
-Main.BackgroundColor3 = Color3.fromRGB(15, 18, 25)
+Main.Size = UDim2.fromOffset(270, 185)
+Main.Position = UDim2.new(0.5, -135, 0.5, -92)
+Main.BackgroundColor3 = FUNDO
 Main.BorderSizePixel = 0
 Main.Parent = ScreenGui
 
@@ -49,8 +63,8 @@ Corner.CornerRadius = UDim.new(0, 4)
 Corner.Parent = Main
 
 local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(255, 105, 180)
-Stroke.Thickness = 1
+Stroke.Color = COR_ROSA
+Stroke.Thickness = 1.5
 Stroke.Parent = Main
 
 --==================================================
@@ -79,16 +93,16 @@ Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = Top
 
 --==================================================
--- FECHAR
+-- BOTÃO FECHAR
 --==================================================
 
 local CloseButton = Instance.new("TextButton")
 CloseButton.Size = UDim2.fromOffset(25, 25)
 CloseButton.Position = UDim2.new(1, -30, 0, 4)
-CloseButton.BackgroundColor3 = Color3.fromRGB(35, 40, 52)
+CloseButton.BackgroundColor3 = FUNDO_BOTAO
 CloseButton.BorderSizePixel = 0
 CloseButton.Text = "X"
-CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.TextSize = 11
 CloseButton.Font = Enum.Font.GothamBold
 CloseButton.Parent = Top
@@ -98,7 +112,7 @@ CloseCorner.CornerRadius = UDim.new(0, 4)
 CloseCorner.Parent = CloseButton
 
 local CloseStroke = Instance.new("UIStroke")
-CloseStroke.Color = Color3.fromRGB(255, 105, 180)
+CloseStroke.Color = COR_ROSA
 CloseStroke.Thickness = 1
 CloseStroke.Parent = CloseButton
 
@@ -289,7 +303,7 @@ local function TeleportToBase()
 end
 
 --==================================================
--- DETECTOR
+-- IDENTIFICAR OVOS
 --==================================================
 
 local function pareceOvo(obj)
@@ -308,6 +322,474 @@ local function pareceOvo(obj)
     end
 
     return false
+end
+
+--==================================================
+-- LER VALORES E ATRIBUTOS
+--==================================================
+
+local function obterValor(obj, nomes)
+
+    if not obj then
+        return nil
+    end
+
+    for _, nome in ipairs(nomes) do
+
+        local atributo = obj:GetAttribute(nome)
+
+        if atributo ~= nil then
+            return atributo
+        end
+
+        local filho = obj:FindFirstChild(nome, true)
+
+        if filho and (
+            filho:IsA("StringValue")
+            or filho:IsA("NumberValue")
+            or filho:IsA("IntValue")
+            or filho:IsA("ValueBase")
+        ) then
+
+            local sucesso, valor = pcall(function()
+                return filho.Value
+            end)
+
+            if sucesso and valor ~= nil then
+                return valor
+            end
+        end
+    end
+
+    return nil
+end
+
+--==================================================
+-- CONVERTER INCOME
+--==================================================
+
+local function converterIncome(valor)
+
+    if typeof(valor) == "number" then
+        return valor
+    end
+
+    if valor == nil then
+        return 0
+    end
+
+    local texto = tostring(valor)
+        :gsub(",", "")
+        :gsub("%s+", "")
+        :upper()
+
+    local numero, sufixo = texto:match(
+        "^([%d%.]+)([KMBT]?)$"
+    )
+
+    numero = tonumber(numero)
+
+    if not numero then
+        return 0
+    end
+
+    local multiplicadores = {
+        K = 1000,
+        M = 1000000,
+        B = 1000000000,
+        T = 1000000000000
+    }
+
+    return numero * (multiplicadores[sufixo] or 1)
+end
+
+--==================================================
+-- EXTRAIR INFORMAÇÕES DO OVO
+--==================================================
+
+local function escanearOvoOficial(ovo)
+
+    local nomePet = obterValor(ovo, {
+        "PetName",
+        "Pet",
+        "Pet_Name",
+        "DisplayName",
+        "CreatureName"
+    }) or ovo.Name
+
+    local raridade = obterValor(ovo, {
+        "Rarity",
+        "Raridade",
+        "PetRarity",
+        "Tier"
+    }) or "Desconhecida"
+
+    local income = obterValor(ovo, {
+        "Income",
+        "Multiplier",
+        "MoneyPerSecond",
+        "CashPerSecond",
+        "Earnings",
+        "Rate",
+        "Value"
+    }) or 0
+
+    local incomeNumero = converterIncome(income)
+
+    return {
+        Instancia = ovo,
+        Pet = tostring(nomePet),
+        Raridade = tostring(raridade),
+        Income = incomeNumero,
+        Nome = ovo.Name
+    }
+end
+
+--==================================================
+-- INTERFACE FARM
+--==================================================
+
+local FarmPanel = Instance.new("Frame")
+FarmPanel.Name = "FarmPanel"
+FarmPanel.Size = UDim2.fromOffset(280, 290)
+FarmPanel.Position = UDim2.new(0.5, 145, 0.5, -145)
+FarmPanel.BackgroundColor3 = FUNDO
+FarmPanel.BorderSizePixel = 0
+FarmPanel.Visible = false
+FarmPanel.Parent = ScreenGui
+
+local FarmCorner = Instance.new("UICorner")
+FarmCorner.CornerRadius = UDim.new(0, 4)
+FarmCorner.Parent = FarmPanel
+
+local FarmStroke = Instance.new("UIStroke")
+FarmStroke.Color = COR_ROSA
+FarmStroke.Thickness = 1.5
+FarmStroke.Parent = FarmPanel
+
+local FarmTitle = Instance.new("TextLabel")
+FarmTitle.Size = UDim2.new(1, -16, 0, 32)
+FarmTitle.Position = UDim2.fromOffset(8, 4)
+FarmTitle.BackgroundTransparency = 1
+FarmTitle.Text = "FARM - MELHORES OVOS"
+FarmTitle.TextColor3 = Color3.new(1, 1, 1)
+FarmTitle.TextSize = 13
+FarmTitle.Font = Enum.Font.GothamBold
+FarmTitle.Parent = FarmPanel
+
+local FarmStatus = Instance.new("TextLabel")
+FarmStatus.Size = UDim2.new(1, -16, 0, 22)
+FarmStatus.Position = UDim2.fromOffset(8, 35)
+FarmStatus.BackgroundTransparency = 1
+FarmStatus.Text = "Farm: OFF"
+FarmStatus.TextColor3 = ROSA_CLARO
+FarmStatus.TextSize = 12
+FarmStatus.Font = Enum.Font.Gotham
+FarmStatus.Parent = FarmPanel
+
+local FarmToggle = Instance.new("TextButton")
+FarmToggle.Size = UDim2.new(1, -16, 0, 32)
+FarmToggle.Position = UDim2.fromOffset(8, 60)
+FarmToggle.BackgroundColor3 = FUNDO_BOTAO
+FarmToggle.BorderSizePixel = 0
+FarmToggle.Text = "FARM OFF"
+FarmToggle.TextColor3 = Color3.new(1, 1, 1)
+FarmToggle.TextSize = 12
+FarmToggle.Font = Enum.Font.GothamBold
+FarmToggle.Parent = FarmPanel
+
+local FarmToggleCorner = Instance.new("UICorner")
+FarmToggleCorner.CornerRadius = UDim.new(0, 4)
+FarmToggleCorner.Parent = FarmToggle
+
+local FarmToggleStroke = Instance.new("UIStroke")
+FarmToggleStroke.Color = COR_ROSA
+FarmToggleStroke.Thickness = 1
+FarmToggleStroke.Parent = FarmToggle
+
+local ListTitle = Instance.new("TextLabel")
+ListTitle.Size = UDim2.new(1, -16, 0, 22)
+ListTitle.Position = UDim2.fromOffset(8, 97)
+ListTitle.BackgroundTransparency = 1
+ListTitle.Text = "OVOS ENCONTRADOS"
+ListTitle.TextColor3 = Color3.new(1, 1, 1)
+ListTitle.TextSize = 11
+ListTitle.Font = Enum.Font.GothamBold
+ListTitle.TextXAlignment = Enum.TextXAlignment.Left
+ListTitle.Parent = FarmPanel
+
+local EggList = Instance.new("ScrollingFrame")
+EggList.Name = "EggList"
+EggList.Size = UDim2.new(1, -16, 1, -126)
+EggList.Position = UDim2.fromOffset(8, 120)
+EggList.BackgroundColor3 = Color3.fromRGB(10, 13, 20)
+EggList.BorderSizePixel = 0
+EggList.ScrollBarThickness = 4
+EggList.CanvasSize = UDim2.new(0, 0, 0, 0)
+EggList.Parent = FarmPanel
+
+local EggListCorner = Instance.new("UICorner")
+EggListCorner.CornerRadius = UDim.new(0, 4)
+EggListCorner.Parent = EggList
+
+local EggListLayout = Instance.new("UIListLayout")
+EggListLayout.Padding = UDim.new(0, 4)
+EggListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+EggListLayout.Parent = EggList
+
+local EggListPadding = Instance.new("UIPadding")
+EggListPadding.PaddingTop = UDim.new(0, 5)
+EggListPadding.PaddingBottom = UDim.new(0, 5)
+EggListPadding.PaddingLeft = UDim.new(0, 5)
+EggListPadding.PaddingRight = UDim.new(0, 5)
+EggListPadding.Parent = EggList
+
+--==================================================
+-- ATUALIZAR LISTA VISUAL
+--==================================================
+
+local function limparListaVisual()
+
+    for _, filho in ipairs(EggList:GetChildren()) do
+
+        if filho:IsA("TextLabel") then
+            filho:Destroy()
+        end
+    end
+end
+
+local function atualizarListaVisual()
+
+    limparListaVisual()
+
+    if #MelhoresOvos == 0 then
+
+        local vazio = Instance.new("TextLabel")
+        vazio.Size = UDim2.new(1, -4, 0, 40)
+        vazio.BackgroundTransparency = 1
+        vazio.Text = "Nenhum ovo encontrado"
+        vazio.TextColor3 = Color3.fromRGB(190, 190, 190)
+        vazio.TextSize = 11
+        vazio.Font = Enum.Font.Gotham
+        vazio.Parent = EggList
+
+        EggList.CanvasSize = UDim2.new(0, 0, 0, 45)
+
+        FarmStatus.Text = FarmAtivo
+            and "Farm: ON | Procurando..."
+            or "Farm: OFF"
+
+        return
+    end
+
+    for indice, dados in ipairs(MelhoresOvos) do
+
+        local linha = Instance.new("TextLabel")
+        linha.Name = "Ovo_" .. indice
+        linha.Size = UDim2.new(1, -4, 0, 48)
+        linha.BackgroundColor3 = indice == 1
+            and Color3.fromRGB(65, 30, 50)
+            or Color3.fromRGB(25, 28, 36)
+
+        linha.BorderSizePixel = 0
+        linha.TextXAlignment = Enum.TextXAlignment.Left
+        linha.TextYAlignment = Enum.TextYAlignment.Center
+        linha.TextWrapped = true
+
+        local incomeTexto = tostring(dados.Income)
+
+        if dados.Income >= 1000000000 then
+            incomeTexto = string.format(
+                "%.2fB",
+                dados.Income / 1000000000
+            )
+        elseif dados.Income >= 1000000 then
+            incomeTexto = string.format(
+                "%.2fM",
+                dados.Income / 1000000
+            )
+        elseif dados.Income >= 1000 then
+            incomeTexto = string.format(
+                "%.2fK",
+                dados.Income / 1000
+            )
+        end
+
+        local prefixo = indice == 1
+            and "[MELHOR] "
+            or "[" .. indice .. "] "
+
+        linha.Text = prefixo
+            .. dados.Pet
+            .. "\n"
+            .. dados.Raridade
+            .. " | Income: "
+            .. incomeTexto
+
+        linha.TextColor3 = Color3.new(1, 1, 1)
+        linha.TextSize = 10
+        linha.Font = Enum.Font.Gotham
+        linha.LayoutOrder = indice
+        linha.Parent = EggList
+
+        local canto = Instance.new("UICorner")
+        canto.CornerRadius = UDim.new(0, 3)
+        canto.Parent = linha
+    end
+
+    EggList.CanvasSize = UDim2.new(
+        0,
+        0,
+        0,
+        EggListLayout.AbsoluteContentSize.Y + 12
+    )
+
+    if OvoPrioritario then
+        FarmStatus.Text = "Melhor: " .. OvoPrioritario.Pet
+    else
+        FarmStatus.Text = "Farm: OFF"
+    end
+end
+
+--==================================================
+-- PROCURAR OVOS POR VÁRIOS MÉTODOS
+--==================================================
+
+local function adicionarCandidato(lista, vistos, obj)
+
+    if not obj or not obj.Parent then
+        return
+    end
+
+    if obj == Player.Character then
+        return
+    end
+
+    if Player.Character and obj:IsDescendantOf(Player.Character) then
+        return
+    end
+
+    if not (
+        obj:IsA("Model")
+        or obj:IsA("Tool")
+        or obj:IsA("BasePart")
+    ) then
+        return
+    end
+
+    if not pareceOvo(obj) then
+        return
+    end
+
+    if vistos[obj] then
+        return
+    end
+
+    vistos[obj] = true
+
+    local dados = escanearOvoOficial(obj)
+
+    table.insert(lista, dados)
+end
+
+local function recarregarListaDoMapa()
+
+    local listaTemporaria = {}
+    local vistos = {}
+
+    -- MÉTODO 1: PASTAS CONHECIDAS
+
+    local nomesPastas = {
+        "DroppedEggs",
+        "Eggs",
+        "Dropped_Eggs",
+        "EggFolder",
+        "EggModels",
+        "Pets",
+        "DroppedItems"
+    }
+
+    for _, nomePasta in ipairs(nomesPastas) do
+
+        local pasta = workspace:FindFirstChild(nomePasta, true)
+
+        if pasta then
+
+            for _, obj in ipairs(pasta:GetDescendants()) do
+                adicionarCandidato(listaTemporaria, vistos, obj)
+            end
+
+            adicionarCandidato(listaTemporaria, vistos, pasta)
+        end
+    end
+
+    -- MÉTODO 2: VARREDURA GERAL DO MAPA
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        adicionarCandidato(listaTemporaria, vistos, obj)
+    end
+
+    -- MÉTODO 3: ATRIBUTOS QUE IDENTIFICAM UM PET
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+
+        if obj:IsA("Model") or obj:IsA("Tool") then
+
+            local pet = obterValor(obj, {
+                "PetName",
+                "Pet",
+                "Pet_Name",
+                "DisplayName",
+                "CreatureName"
+            })
+
+            local income = obterValor(obj, {
+                "Income",
+                "Multiplier",
+                "MoneyPerSecond",
+                "CashPerSecond",
+                "Earnings",
+                "Rate"
+            })
+
+            if pet ~= nil or income ~= nil then
+                adicionarCandidato(listaTemporaria, vistos, obj)
+            end
+        end
+    end
+
+    -- MÉTODO 4: EVITAR REPETIR OVOS COM A MESMA INSTÂNCIA
+
+    local listaFinal = {}
+    local instanciasIncluidas = {}
+
+    for _, dados in ipairs(listaTemporaria) do
+
+        if not instanciasIncluidas[dados.Instancia] then
+
+            instanciasIncluidas[dados.Instancia] = true
+
+            table.insert(listaFinal, dados)
+        end
+    end
+
+    -- MAIOR INCOME PRIMEIRO
+
+    table.sort(listaFinal, function(a, b)
+
+        if a.Income == b.Income then
+            return a.Pet:lower() < b.Pet:lower()
+        end
+
+        return a.Income > b.Income
+    end)
+
+    MelhoresOvos = listaFinal
+    OvoPrioritario = MelhoresOvos[1]
+
+    _G.MelhoresOvosAtivos = MelhoresOvos
+
+    atualizarListaVisual()
 end
 
 --==================================================
@@ -341,6 +823,66 @@ local function detectar(obj, motivo)
         end
     end
 end
+
+--==================================================
+-- BOTÃO FARM
+--==================================================
+
+FarmToggle.MouseButton1Click:Connect(function()
+
+    FarmAtivo = not FarmAtivo
+
+    if FarmAtivo then
+
+        FarmToggle.Text = "FARM ON"
+        FarmToggle.BackgroundColor3 = Color3.fromRGB(90, 35, 65)
+
+        print("pyllo hub: FARM ATIVADO")
+
+        recarregarListaDoMapa()
+
+    else
+
+        FarmToggle.Text = "FARM OFF"
+        FarmToggle.BackgroundColor3 = FUNDO_BOTAO
+
+        print("pyllo hub: FARM DESATIVADO")
+    end
+end)
+
+--==================================================
+-- BOTÃO CATEGORIA FARM
+--==================================================
+
+local FarmCategoryButton = Instance.new("TextButton")
+FarmCategoryButton.Name = "FarmCategoryButton"
+FarmCategoryButton.Size = UDim2.new(1, -16, 0, 38)
+FarmCategoryButton.Position = UDim2.fromOffset(8, 91)
+FarmCategoryButton.BackgroundColor3 = FUNDO_BOTAO
+FarmCategoryButton.BorderSizePixel = 0
+FarmCategoryButton.Text = "FARM"
+FarmCategoryButton.TextColor3 = Color3.new(1, 1, 1)
+FarmCategoryButton.TextSize = 13
+FarmCategoryButton.Font = Enum.Font.GothamBold
+FarmCategoryButton.Parent = Main
+
+local FarmCategoryCorner = Instance.new("UICorner")
+FarmCategoryCorner.CornerRadius = UDim.new(0, 4)
+FarmCategoryCorner.Parent = FarmCategoryButton
+
+local FarmCategoryStroke = Instance.new("UIStroke")
+FarmCategoryStroke.Color = COR_ROSA
+FarmCategoryStroke.Thickness = 1
+FarmCategoryStroke.Parent = FarmCategoryButton
+
+FarmCategoryButton.MouseButton1Click:Connect(function()
+
+    FarmPanel.Visible = not FarmPanel.Visible
+
+    if FarmPanel.Visible then
+        recarregarListaDoMapa()
+    end
+end)
 
 --==================================================
 -- PROXIMITY PROMPT
@@ -407,18 +949,11 @@ local function procurarNoCharacter()
     for _, obj in ipairs(character:GetDescendants()) do
 
         if pareceOvo(obj) then
-            detectar(
-                obj,
-                "Objeto no Character"
-            )
+            detectar(obj, "Objeto no Character")
         end
 
         if obj:IsA("Tool") and pareceOvo(obj) then
-
-            detectar(
-                obj,
-                "Tool"
-            )
+            detectar(obj, "Tool")
         end
 
         if obj:IsA("Weld")
@@ -426,17 +961,11 @@ local function procurarNoCharacter()
         or obj:IsA("Motor6D") then
 
             if obj.Part0 then
-                detectar(
-                    obj.Part0,
-                    "Objeto conectado por Weld"
-                )
+                detectar(obj.Part0, "Objeto conectado por Weld")
             end
 
             if obj.Part1 then
-                detectar(
-                    obj.Part1,
-                    "Objeto conectado por Weld"
-                )
+                detectar(obj.Part1, "Objeto conectado por Weld")
             end
         end
     end
@@ -460,10 +989,7 @@ local function conectarCharacter(character)
             return
         end
 
-        detectar(
-            obj,
-            "Objeto adicionado ao Character"
-        )
+        detectar(obj, "Objeto adicionado ao Character")
 
         local atual = obj.Parent
 
@@ -473,10 +999,7 @@ local function conectarCharacter(character)
                 break
             end
 
-            detectar(
-                atual,
-                "Parent de objeto novo"
-            )
+            detectar(atual, "Parent de objeto novo")
 
             atual = atual.Parent
         end
@@ -501,7 +1024,23 @@ end
 Player.CharacterAdded:Connect(conectarCharacter)
 
 --==================================================
--- VERIFICAÇÃO CONTÍNUA
+-- ATUALIZAÇÃO AUTOMÁTICA DO FARM
+--==================================================
+
+task.spawn(function()
+
+    while true do
+
+        if FarmAtivo then
+            recarregarListaDoMapa()
+        end
+
+        task.wait(1)
+    end
+end)
+
+--==================================================
+-- VERIFICAÇÃO CONTÍNUA DO DETECTOR ORIGINAL
 --==================================================
 
 task.spawn(function()
@@ -517,21 +1056,13 @@ task.spawn(function()
 
             if backpack then
 
-                for _, obj in ipairs(
-                    backpack:GetChildren()
-                ) do
+                for _, obj in ipairs(backpack:GetChildren()) do
 
-                    if obj:IsA("Tool")
-                    and pareceOvo(obj) then
+                    if obj:IsA("Tool") and pareceOvo(obj) then
 
-                        detectar(
-                            obj,
-                            "Tool no Backpack"
-                        )
+                        detectar(obj, "Tool no Backpack")
 
-                        print(
-                            "OVO CHEGOU AO INVENTÁRIO!"
-                        )
+                        print("OVO CHEGOU AO INVENTÁRIO!")
                     end
                 end
             end
@@ -549,14 +1080,10 @@ local BostButton = Instance.new("TextButton")
 
 BostButton.Size = UDim2.new(1, -16, 0, 38)
 BostButton.Position = UDim2.fromOffset(8, 47)
-BostButton.BackgroundColor3 =
-    Color3.fromRGB(0, 100, 210)
-
+BostButton.BackgroundColor3 = Color3.fromRGB(0, 100, 210)
 BostButton.BorderSizePixel = 0
 BostButton.Text = "PARA BOTS"
-BostButton.TextColor3 =
-    Color3.fromRGB(255, 255, 255)
-
+BostButton.TextColor3 = Color3.new(1, 1, 1)
 BostButton.TextSize = 13
 BostButton.Font = Enum.Font.GothamBold
 BostButton.Parent = Main
@@ -566,7 +1093,7 @@ BostCorner.CornerRadius = UDim.new(0, 4)
 BostCorner.Parent = BostButton
 
 local BostStroke = Instance.new("UIStroke")
-BostStroke.Color = Color3.fromRGB(255, 105, 180)
+BostStroke.Color = COR_ROSA
 BostStroke.Thickness = 1
 BostStroke.Parent = BostButton
 
@@ -577,18 +1104,14 @@ BostButton.MouseButton1Click:Connect(function()
     if BotAtivo then
 
         BostButton.Text = "PARA BOTS"
-
-        BostButton.BackgroundColor3 =
-            Color3.fromRGB(0, 100, 210)
+        BostButton.BackgroundColor3 = Color3.fromRGB(0, 100, 210)
 
         print("pyllo hub: BOT LIGADO")
 
     else
 
         BostButton.Text = "BOT DESLIGADO"
-
-        BostButton.BackgroundColor3 =
-            Color3.fromRGB(70, 70, 80)
+        BostButton.BackgroundColor3 = Color3.fromRGB(70, 70, 80)
 
         ovoDetectado = nil
         roubando = false
@@ -598,7 +1121,7 @@ BostButton.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- BOLINHA
+-- BOLINHA ROSA-CLARO
 --==================================================
 
 local OpenButton = Instance.new("TextButton")
@@ -606,19 +1129,12 @@ local OpenButton = Instance.new("TextButton")
 OpenButton.Name = "Reabrir"
 OpenButton.Size = UDim2.fromOffset(52, 52)
 OpenButton.Position = UDim2.fromOffset(15, 180)
-
-OpenButton.BackgroundColor3 =
-    Color3.fromRGB(255, 182, 220)
-
+OpenButton.BackgroundColor3 = ROSA_CLARO
 OpenButton.BorderSizePixel = 0
-
 OpenButton.Text = "pyllo"
-OpenButton.TextColor3 =
-    Color3.fromRGB(255, 255, 255)
-
+OpenButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 OpenButton.TextSize = 16
 OpenButton.Font = Enum.Font.GothamBold
-
 OpenButton.Visible = false
 OpenButton.Parent = ScreenGui
 
@@ -627,8 +1143,8 @@ OpenCorner.CornerRadius = UDim.new(1, 0)
 OpenCorner.Parent = OpenButton
 
 local OpenStroke = Instance.new("UIStroke")
-OpenStroke.Color = Color3.fromRGB(255, 105, 180)
-OpenStroke.Thickness = 1
+OpenStroke.Color = COR_ROSA
+OpenStroke.Thickness = 1.5
 OpenStroke.Parent = OpenButton
 
 --==================================================
@@ -638,6 +1154,7 @@ OpenStroke.Parent = OpenButton
 CloseButton.MouseButton1Click:Connect(function()
 
     Main.Visible = false
+    FarmPanel.Visible = false
     OpenButton.Visible = true
 end)
 
@@ -657,10 +1174,8 @@ local StartPos
 
 Top.InputBegan:Connect(function(Input)
 
-    if Input.UserInputType ==
-        Enum.UserInputType.MouseButton1
-    or Input.UserInputType ==
-        Enum.UserInputType.Touch then
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+    or Input.UserInputType == Enum.UserInputType.Touch then
 
         Dragging = true
         DragStart = Input.Position
@@ -668,9 +1183,7 @@ Top.InputBegan:Connect(function(Input)
 
         Input.Changed:Connect(function()
 
-            if Input.UserInputState ==
-                Enum.UserInputState.End then
-
+            if Input.UserInputState == Enum.UserInputState.End then
                 Dragging = false
             end
         end)
@@ -683,13 +1196,10 @@ UserInputService.InputChanged:Connect(function(Input)
         return
     end
 
-    if Input.UserInputType ==
-        Enum.UserInputType.MouseMovement
-    or Input.UserInputType ==
-        Enum.UserInputType.Touch then
+    if Input.UserInputType == Enum.UserInputType.MouseMovement
+    or Input.UserInputType == Enum.UserInputType.Touch then
 
-        local Delta =
-            Input.Position - DragStart
+        local Delta = Input.Position - DragStart
 
         Main.Position = UDim2.new(
             StartPos.X.Scale,
@@ -704,9 +1214,12 @@ end)
 -- INÍCIO
 --==================================================
 
+_G.MelhoresOvosAtivos = {}
+
 print("pyllo hub carregado!")
 print("Bot começa DESLIGADO.")
-print("Clique em PARA BOTS para ligar.")
 print("Detector de ovo carregado.")
+print("Categoria FARM carregada.")
+print("Lista ordenada por Income quando disponível.")
 print("Teleporte: 0.2s antes.")
 print("Base: 0.1s.")
