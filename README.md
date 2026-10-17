@@ -1,1 +1,1 @@
-![Pyllo Hub](pyllo_hub.png)
+b5933a40b9ad6f419dc878872fc90e68.jpg
