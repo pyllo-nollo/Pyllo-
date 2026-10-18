@@ -23,8 +23,6 @@ local ovoDetectado = nil
 local roubando = false
 
 local NOME_IMAGEM = "b5933a40b9ad6f419dc878872fc90e68.jpg"
-
--- Carregamento de imagem local pelo executor
 local IMAGEM_FUNDO = ""
 
 local function CarregarImagemLocal(nome)
@@ -43,7 +41,6 @@ local function CarregarImagemLocal(nome)
     end
 
     warn("pyllo hub: não foi possível carregar a imagem local.")
-    warn("Verifique se o arquivo está acessível ao Delta Executor.")
     return ""
 end
 
@@ -522,23 +519,29 @@ BotButton.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- BOLINHA DE REABRIR
+-- BOLINHA DE REABRIR | SÍMBOLO EGÍPCIO
 --==================================================
 
-local OpenButton = Instance.new("ImageButton")
+local OpenButton = Instance.new("TextButton")
 OpenButton.Name = "Reabrir"
 OpenButton.Size = UDim2.fromOffset(52, 52)
 OpenButton.Position = UDim2.fromOffset(15, 180)
-OpenButton.BackgroundColor3 = FUNDO
+OpenButton.BackgroundColor3 = Color3.fromRGB(255, 190, 225)
 OpenButton.BorderSizePixel = 0
-OpenButton.Image = IMAGEM_FUNDO
-OpenButton.ScaleType = Enum.ScaleType.Crop
+OpenButton.Text = "𓆗"
+OpenButton.TextColor3 = ROSA_ESCURO
+OpenButton.TextSize = 30
+OpenButton.Font = Enum.Font.Gotham
+OpenButton.TextXAlignment = Enum.TextXAlignment.Center
+OpenButton.TextYAlignment = Enum.TextYAlignment.Center
+OpenButton.AutoButtonColor = true
 OpenButton.Visible = false
 OpenButton.ZIndex = 5
 OpenButton.Parent = ScreenGui
 
-Instance.new("UICorner", OpenButton).CornerRadius =
-    UDim.new(1, 0)
+local OpenCorner = Instance.new("UICorner")
+OpenCorner.CornerRadius = UDim.new(1, 0)
+OpenCorner.Parent = OpenButton
 
 local OpenStroke = Instance.new("UIStroke")
 OpenStroke.Color = ROSA
